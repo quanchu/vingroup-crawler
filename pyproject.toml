@@ -1,0 +1,34 @@
+[project]
+name = "vingroup-crawler"
+version = "0.1.0"
+description = "Interactive Vingroup article crawler and analyzer"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "beautifulsoup4>=4.12,<5",
+  "httpx>=0.27,<1",
+  "openai>=1.68,<3",
+  "playwright>=1.51,<2",
+  "pydantic>=2.10,<3",
+  "python-dotenv>=1.0,<2",
+  "rich>=13.9,<15",
+  "typer>=0.15,<1",
+]
+
+[project.scripts]
+vingroup-crawler = "vingroup_crawler.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=8.3,<9", "pytest-cov>=6,<8", "respx>=0.22,<1"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vingroup_crawler"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+markers = ["live: makes a real network request"]

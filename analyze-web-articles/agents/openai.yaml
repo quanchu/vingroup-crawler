@@ -1,0 +1,15 @@
+interface:
+  display_name: Analyze Web Articles
+  short_description: Segment articles, extract VIPs, suggest indirect quotes
+  default_prompt: Use $analyze-web-articles to segment this article URL and return
+    one JSON file with section boundaries, VIP names and titles, and suggested indirect
+    quotes.
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true
