@@ -19,6 +19,13 @@ class Article(StrictModel):
     slug: str | None = None
 
 
+class DiscoveredArticle(StrictModel):
+    language: Literal["vi", "en"]
+    article_id: str
+    source_url: str
+    publication_date: str
+
+
 class Section(StrictModel):
     heading: str
     section_type: Literal["narrative", "quotation", "corporate_boilerplate"]
@@ -57,4 +64,3 @@ class ModelAnalysis(StrictModel):
     sections: list[Section]
     people: list[Person]
     quote_changes: list[QuoteChange]
-

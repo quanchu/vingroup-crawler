@@ -1,7 +1,7 @@
 [project]
 name = "vingroup-crawler"
 version = "0.1.0"
-description = "Interactive Vingroup article crawler and analyzer"
+description = "Date-range Vingroup article crawler and analyzer"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

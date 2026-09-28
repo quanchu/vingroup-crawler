@@ -1,6 +1,6 @@
 # Vingroup Article Crawler
 
-A Python 3.11 CLI that extracts one Vingroup article, analyzes its structure, named VIPs, and direct quotations with OpenAI, then writes the original article to Markdown and the analysis to JSON.
+A Python 3.11 CLI that discovers Vietnamese and English Vingroup articles in a publication-date range, analyzes their structure, named VIPs, and direct quotations with OpenAI, then writes Markdown and JSON artifacts.
 
 ## Setup
 
@@ -15,10 +15,25 @@ Add your OpenAI API key to `.env` (or export `OPENAI_API_KEY`). `OPENAI_MODEL` i
 ## Run
 
 ```bash
-uv run vingroup-crawler 'https://vingroup.net/.../bai-viet/...'
+uv run vingroup-crawler --from 2026-01-01 --to 2026-01-31
 ```
 
-Pass one `https://vingroup.net/...` or `https://www.vingroup.net/...` article URL as the positional argument. On success, the command prints the two paths created under `output/` and exits. Existing output is preserved by adding a numeric suffix.
+Both dates are required ISO dates and inclusive. The crawler walks the Vietnamese and English news listings, verifies each article's publication date from its detail page, and processes matching articles sequentially.
+
+Artifacts are named by Vingroup article ID and separated by language and format:
+
+```text
+output/
+├── crawled_articles.csv
+├── vi/
+│   ├── markdown/9080.md
+│   └── json/9080.json
+└── en/
+    ├── markdown/9080.md
+    └── json/9080.json
+```
+
+`crawled_articles.csv` records discovered, successful, and failed articles. Later runs skip successful IDs and retry failed ones. A batch continues after individual article failures, prints a summary, and exits nonzero when any article failed.
 
 The crawler normally uses a lightweight HTTP request. If Vingroup returns a Cloudflare JavaScript challenge, it automatically opens the locally installed stable Chrome with a persistent local profile, falling back to Playwright's Chromium when Chrome is unavailable. Complete the challenge in that window if prompted; the crawler waits for up to two minutes. Set `VINGROUP_BROWSER_HEADLESS=1` only in environments where a visible browser is unavailable; Cloudflare may be less likely to accept a headless browser. Set `VINGROUP_BROWSER_CHANNEL=chromium` to skip the local Chrome preference.
 
@@ -28,7 +43,7 @@ The crawler normally uses a lightweight HTTP request. If Vingroup returns a Clou
 uv run pytest
 ```
 
-Normal tests are deterministic and network-free. To opt into the live extraction smoke test:
+Normal tests are deterministic and network-free. To opt into the existing live extraction smoke test:
 
 ```bash
 VINGROUP_LIVE_URL='https://vingroup.net/.../bai-viet/...' uv run pytest -m live

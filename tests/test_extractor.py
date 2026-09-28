@@ -1,7 +1,7 @@
 import pytest
 
 from vingroup_crawler.errors import CrawlerError
-from vingroup_crawler.extractor import extract_article
+from vingroup_crawler.extractor import _normalize_date, extract_article
 
 
 ARTICLE_HTML = """
@@ -19,7 +19,7 @@ ARTICLE_HTML = """
 
 
 def test_extracts_article_and_headings():
-    article = extract_article(ARTICLE_HTML, "https://vingroup.net/news/bai-viet/123-du-an-moi")
+    article = extract_article(ARTICLE_HTML, "https://vingroup.net/tin-tuc-su-kien/bai-viet/123/du-an-moi")
     assert article.title == "Tập đoàn công bố dự án"
     assert article.publication_date == "2025-08-07"
     assert len(article.paragraphs) == 3
@@ -32,3 +32,6 @@ def test_rejects_listing_page():
     with pytest.raises(CrawlerError, match="article body"):
         extract_article("<html><h1>News</h1><a>Item one</a><a>Item two</a></html>", "https://vingroup.net/news")
 
+
+def test_normalizes_english_publication_date():
+    assert _normalize_date("January 15, 2026") == "2026-01-15"

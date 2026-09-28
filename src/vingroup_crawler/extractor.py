@@ -84,6 +84,11 @@ def _normalize_date(value: str | None) -> str | None:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).date().isoformat()
     except ValueError:
         pass
+    for format_string in ("%B %d, %Y", "%b %d, %Y", "%d %B %Y", "%d %b %Y"):
+        try:
+            return datetime.strptime(value, format_string).date().isoformat()
+        except ValueError:
+            continue
     match = re.search(r"(?<!\d)(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?!\d)", value)
     if match:
         day, month, year = map(int, match.groups())
@@ -169,8 +174,7 @@ def extract_article(html: str, source_url: str) -> Article:
 
     parts = [unquote(p) for p in urlsplit(source_url).path.split("/") if p]
     slug = parts[-1] if parts else "article"
-    id_match = re.search(r"(?:^|[-_])(\d{3,})(?:[-_]|$)", slug)
-    article_id = id_match.group(1) if id_match else None
+    article_id = extract_article_id(source_url)
     return Article(
         source_url=source_url,
         title=title,
@@ -180,3 +184,10 @@ def extract_article(html: str, source_url: str) -> Article:
         article_id=article_id,
         slug=slug,
     )
+
+
+def extract_article_id(url: str) -> str | None:
+    """Return the numeric ID from a canonical localized Vingroup detail route."""
+    path = unquote(urlsplit(url).path)
+    match = re.search(r"/(?:bai-viet|articles)/(\d+)(?:/|$)", path, re.IGNORECASE)
+    return match.group(1) if match else None

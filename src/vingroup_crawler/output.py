@@ -2,23 +2,16 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import tempfile
-import unicodedata
 from pathlib import Path
 
 from .models import Article, ModelAnalysis
 
 
-def _safe_piece(value: str) -> str:
-    ascii_value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-zA-Z0-9]+", "-", ascii_value).strip("-").lower()[:80]
-
-
 def base_name(article: Article) -> str:
-    slug = _safe_piece(article.slug or article.title) or "article"
-    ident = _safe_piece(article.article_id or "")
-    return f"{ident}-{slug}" if ident and ident not in slug.split("-") else slug
+    if not article.article_id or not article.article_id.isdigit():
+        raise ValueError("A canonical numeric Vingroup article ID is required for output")
+    return article.article_id
 
 
 def render_markdown(article: Article) -> str:
@@ -66,24 +59,31 @@ def write_outputs(
     analysis: ModelAnalysis,
     sections: list[dict],
     *,
+    language: str,
     output_dir: Path = Path("output"),
 ) -> tuple[Path, Path]:
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if language not in {"vi", "en"}:
+        raise ValueError("language must be 'vi' or 'en'")
+    markdown_dir = output_dir / language / "markdown"
+    json_dir = output_dir / language / "json"
+    markdown_dir.mkdir(parents=True, exist_ok=True)
+    json_dir.mkdir(parents=True, exist_ok=True)
     stem = base_name(article)
-    counter = 1
-    while True:
-        candidate = stem if counter == 1 else f"{stem}-{counter}"
-        md_path = output_dir / f"{candidate}.md"
-        json_path = output_dir / f"{candidate}.json"
-        if not md_path.exists() and not json_path.exists():
-            break
-        counter += 1
-    md_temp = _write_temp(output_dir, ".md.tmp", render_markdown(article))
+    md_path = markdown_dir / f"{stem}.md"
+    json_path = json_dir / f"{stem}.json"
+    md_temp = _write_temp(markdown_dir, ".md.tmp", render_markdown(article))
     json_text = json.dumps(public_analysis(article, analysis, sections), ensure_ascii=False, indent=2) + "\n"
     json_temp: Path | None = None
     installed: list[Path] = []
+    backups: dict[Path, Path] = {}
     try:
-        json_temp = _write_temp(output_dir, ".json.tmp", json_text)
+        json_temp = _write_temp(json_dir, ".json.tmp", json_text)
+        for destination in (md_path, json_path):
+            if destination.exists():
+                backup = destination.with_name(f".{destination.name}.backup")
+                backup.unlink(missing_ok=True)
+                os.replace(destination, backup)
+                backups[destination] = backup
         os.replace(md_temp, md_path)
         installed.append(md_path)
         os.replace(json_temp, json_path)
@@ -94,6 +94,20 @@ def write_outputs(
             json_temp.unlink(missing_ok=True)
         for path in installed:
             path.unlink(missing_ok=True)
+        for destination, backup in backups.items():
+            if backup.exists():
+                os.replace(backup, destination)
         raise
+    for backup in backups.values():
+        backup.unlink(missing_ok=True)
     return md_path.resolve(), json_path.resolve()
 
+
+def remove_legacy_outputs(output_dir: Path = Path("output")) -> None:
+    """Remove only flat artifacts created by the pre-language layout."""
+    if not output_dir.exists():
+        return
+    for pattern in ("*.md", "*.json"):
+        for path in output_dir.glob(pattern):
+            if path.name != "crawled_articles.json":
+                path.unlink()
