@@ -2,6 +2,8 @@
 
 A Python 3.11 CLI that separately crawls Vietnamese and English Vingroup articles and analyzes cached source text with hosted or local LLMs.
 
+For architecture, data flow, validation rules, registries, provider details, and troubleshooting context, see [PROJECT_GUIDE.md](PROJECT_GUIDE.md).
+
 ## Setup
 
 ```bash
