@@ -86,7 +86,11 @@ def crawl(
 
 @app.command()
 def analyze(
-    provider_name: str | None = typer.Option(None, "--provider", help="openai, anthropic, or gemini."),
+    provider_name: str | None = typer.Option(
+        None,
+        "--provider",
+        help="openai, anthropic, gemini, ollama, or local-openai.",
+    ),
     model_name: str | None = typer.Option(None, "--model", help="Exact provider model ID."),
     start_value: str | None = typer.Option(None, "--from", help="Optional cached publication-date lower bound."),
     end_value: str | None = typer.Option(None, "--to", help="Optional cached publication-date upper bound."),
@@ -153,7 +157,13 @@ def analyze(
     skipped = succeeded = failed = 0
     failures: list[str] = []
     for row in rows:
-        key = (row["language"], row["article_id"], provider_name, selected_model)
+        key = (
+            row["language"],
+            row["article_id"],
+            provider_name,
+            selected_model,
+            adapter.endpoint,
+        )
         if not force and analysis_registry.is_success(key):
             skipped += 1
             continue
@@ -163,7 +173,7 @@ def analyze(
             result, sections = analyze_article(article, provider=adapter, model=selected_model)
             proposed, analysis_json = write_analysis_outputs(
                 article, result, sections, language=row["language"], provider=provider_name,
-                model=selected_model, output_dir=Path("output"),
+                model=selected_model, endpoint=adapter.endpoint, output_dir=Path("output"),
             )
             analysis_registry.success(key, proposed, analysis_json)
             succeeded += 1

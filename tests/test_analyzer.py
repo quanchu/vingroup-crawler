@@ -5,6 +5,7 @@ import pytest
 from vingroup_crawler.analyzer import analyze_article
 from vingroup_crawler.errors import AnalysisError
 from vingroup_crawler.models import Article, ModelAnalysis
+from vingroup_crawler.providers import StructuredResponseError
 
 
 ARTICLE = Article(source_url="https://vingroup.net/a", title="Title", publication_date=None,
@@ -56,3 +57,19 @@ def test_refusal():
     with pytest.raises(AnalysisError, match="refused"):
         analyze_article(ARTICLE, client=SimpleNamespace(responses=Refusing()))
 
+
+def test_provider_structured_error_gets_repair_retry():
+    class RepairingProvider:
+        name = "ollama"
+        endpoint = "http://localhost:11434"
+        def __init__(self): self.inputs = []
+        def generate(self, *, model, input_text):
+            self.inputs.append(input_text)
+            if len(self.inputs) == 1:
+                raise StructuredResponseError("invalid JSON")
+            return valid()
+
+    provider = RepairingProvider()
+    parsed, _ = analyze_article(ARTICLE, provider=provider, model="local-test")
+    assert parsed.sections[0].heading == "All"
+    assert "PREVIOUS OUTPUT FAILED" in provider.inputs[1]

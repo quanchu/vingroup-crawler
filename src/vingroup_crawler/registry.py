@@ -11,7 +11,8 @@ from .models import DiscoveredArticle
 CRAWL_FIELDS = ("language", "article_id", "source_url", "publication_date", "status", "markdown_path", "source_json_path", "error", "updated_at")
 OLD_FIELDS = ("language", "article_id", "source_url", "publication_date", "status", "markdown_path", "proposed_markdown_path", "json_path", "error", "updated_at")
 OLDER_FIELDS = tuple(field for field in OLD_FIELDS if field != "proposed_markdown_path")
-ANALYSIS_FIELDS = ("language", "article_id", "provider", "model", "status", "proposed_markdown_path", "analysis_json_path", "error", "updated_at")
+ANALYSIS_FIELDS = ("language", "article_id", "provider", "model", "endpoint", "status", "proposed_markdown_path", "analysis_json_path", "error", "updated_at")
+LEGACY_ANALYSIS_FIELDS = tuple(field for field in ANALYSIS_FIELDS if field != "endpoint")
 
 
 def _now() -> str:
@@ -97,35 +98,38 @@ class CrawlRegistry:
 class AnalysisRegistry:
     def __init__(self, path: Path = Path("output/analyses.csv")) -> None:
         self.path = path
-        self.rows: dict[tuple[str, str, str, str], dict[str, str]] = {}
+        self.rows: dict[tuple[str, str, str, str, str], dict[str, str]] = {}
         if path.exists():
             with path.open("r", encoding="utf-8", newline="") as handle:
                 reader = csv.DictReader(handle)
-                if tuple(reader.fieldnames or ()) != ANALYSIS_FIELDS:
+                columns = tuple(reader.fieldnames or ())
+                if columns not in {ANALYSIS_FIELDS, LEGACY_ANALYSIS_FIELDS}:
                     raise ValueError(f"Unexpected analysis registry columns in {path}")
                 for row in reader:
-                    key = (row["language"], row["article_id"], row["provider"], row["model"])
+                    row.setdefault("endpoint", "")
+                    key = (row["language"], row["article_id"], row["provider"], row["model"], row["endpoint"])
                     self.rows[key] = dict(row)
 
-    def is_success(self, key: tuple[str, str, str, str]) -> bool:
+    def is_success(self, key: tuple[str, str, str, str, str]) -> bool:
         row = self.rows.get(key)
         return bool(row and row["status"] == "success")
 
-    def start(self, key: tuple[str, str, str, str]) -> None:
-        language, article_id, provider, model = key
+    def start(self, key: tuple[str, str, str, str, str]) -> None:
+        language, article_id, provider, model, endpoint = key
         existing = self.rows.get(key, {})
         self.rows[key] = {
             "language": language, "article_id": article_id, "provider": provider, "model": model,
+            "endpoint": endpoint,
             "status": "processing", "proposed_markdown_path": existing.get("proposed_markdown_path", ""),
             "analysis_json_path": existing.get("analysis_json_path", ""), "error": "", "updated_at": _now(),
         }
         self.save()
 
-    def success(self, key: tuple[str, str, str, str], proposed: Path, analysis_json: Path) -> None:
+    def success(self, key: tuple[str, str, str, str, str], proposed: Path, analysis_json: Path) -> None:
         self.rows[key].update(status="success", proposed_markdown_path=str(proposed), analysis_json_path=str(analysis_json), error="", updated_at=_now())
         self.save()
 
-    def failed(self, key: tuple[str, str, str, str], error: str) -> None:
+    def failed(self, key: tuple[str, str, str, str, str], error: str) -> None:
         self.rows[key].update(status="failed", error=error, updated_at=_now())
         self.save()
 

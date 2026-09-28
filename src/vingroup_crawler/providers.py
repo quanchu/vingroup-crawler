@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any, Protocol
 
+import httpx
 from pydantic import ValidationError
 
 from .errors import AnalysisError
@@ -12,8 +13,13 @@ from .prompt import ANALYSIS_INSTRUCTIONS
 
 class AnalysisProvider(Protocol):
     name: str
+    endpoint: str
 
     def generate(self, *, model: str, input_text: str) -> ModelAnalysis: ...
+
+
+class StructuredResponseError(AnalysisError):
+    """A provider response that can be repaired by sending validation feedback."""
 
 
 class OpenAIProvider:
@@ -26,6 +32,7 @@ class OpenAIProvider:
             from openai import OpenAI
             client = OpenAI()
         self.client = client
+        self.endpoint = str(getattr(client, "base_url", "https://api.openai.com/v1")).rstrip("/")
 
     def generate(self, *, model: str, input_text: str) -> ModelAnalysis:
         try:
@@ -59,6 +66,7 @@ class AnthropicProvider:
             from anthropic import Anthropic
             client = Anthropic()
         self.client = client
+        self.endpoint = str(getattr(client, "base_url", "https://api.anthropic.com")).rstrip("/")
 
     def generate(self, *, model: str, input_text: str) -> ModelAnalysis:
         try:
@@ -81,8 +89,8 @@ class AnthropicProvider:
                 try:
                     return ModelAnalysis.model_validate(block.input)
                 except ValidationError as exc:
-                    raise AnalysisError(f"Anthropic returned invalid structured data: {exc}") from exc
-        raise AnalysisError("Anthropic returned no submit_analysis tool result")
+                    raise StructuredResponseError(f"Anthropic returned invalid structured data: {exc}") from exc
+        raise StructuredResponseError("Anthropic returned no submit_analysis tool result")
 
 
 class GeminiProvider:
@@ -95,6 +103,7 @@ class GeminiProvider:
             from google import genai
             client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
         self.client = client
+        self.endpoint = "https://generativelanguage.googleapis.com"
 
     def generate(self, *, model: str, input_text: str) -> ModelAnalysis:
         try:
@@ -115,7 +124,104 @@ class GeminiProvider:
         try:
             return ModelAnalysis.model_validate(parsed) if parsed is not None else ModelAnalysis.model_validate_json(response.text)
         except (ValidationError, ValueError, TypeError) as exc:
-            raise AnalysisError(f"Gemini returned invalid structured data: {exc}") from exc
+            raise StructuredResponseError(f"Gemini returned invalid structured data: {exc}") from exc
+
+
+def _local_timeout() -> float:
+    raw = os.getenv("LOCAL_LLM_TIMEOUT", "300")
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise AnalysisError("LOCAL_LLM_TIMEOUT must be a positive number") from exc
+    if value <= 0:
+        raise AnalysisError("LOCAL_LLM_TIMEOUT must be a positive number")
+    return value
+
+
+class OllamaProvider:
+    name = "ollama"
+
+    def __init__(self, client: Any | None = None) -> None:
+        self.endpoint = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+        self.client = client or httpx.Client(timeout=_local_timeout())
+
+    def generate(self, *, model: str, input_text: str) -> ModelAnalysis:
+        try:
+            response = self.client.post(
+                f"{self.endpoint}/api/chat",
+                json={
+                    "model": model,
+                    "stream": False,
+                    "messages": [
+                        {"role": "system", "content": ANALYSIS_INSTRUCTIONS},
+                        {"role": "user", "content": input_text},
+                    ],
+                    "format": ModelAnalysis.model_json_schema(),
+                    "options": {"temperature": 0},
+                },
+            )
+            response.raise_for_status()
+        except (httpx.HTTPError, OSError) as exc:
+            raise AnalysisError(f"Ollama request failed at {self.endpoint}: {exc}") from exc
+        try:
+            content = response.json()["message"]["content"]
+            if not content:
+                raise ValueError("empty message content")
+            return ModelAnalysis.model_validate_json(content)
+        except (KeyError, TypeError, ValueError, ValidationError) as exc:
+            raise StructuredResponseError(f"Ollama returned invalid structured data: {exc}") from exc
+
+
+class LocalOpenAIProvider:
+    name = "local-openai"
+
+    def __init__(self, client: Any | None = None) -> None:
+        self.endpoint = os.getenv("LOCAL_OPENAI_BASE_URL", "http://127.0.0.1:1234/v1").rstrip("/")
+        if client is None:
+            from openai import OpenAI
+            client = OpenAI(
+                base_url=self.endpoint,
+                api_key=os.getenv("LOCAL_OPENAI_API_KEY", "local"),
+                timeout=_local_timeout(),
+            )
+        self.client = client
+
+    def _request(self, model: str, input_text: str, response_format: dict[str, Any]) -> Any:
+        return self.client.chat.completions.create(
+            model=model,
+            temperature=0,
+            messages=[
+                {"role": "system", "content": ANALYSIS_INSTRUCTIONS},
+                {"role": "user", "content": input_text},
+            ],
+            response_format=response_format,
+        )
+
+    def generate(self, *, model: str, input_text: str) -> ModelAnalysis:
+        strict_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "article_analysis",
+                "strict": True,
+                "schema": ModelAnalysis.model_json_schema(),
+            },
+        }
+        try:
+            try:
+                response = self._request(model, input_text, strict_format)
+            except Exception:
+                response = self._request(model, input_text, {"type": "json_object"})
+        except Exception as exc:
+            raise AnalysisError(f"Local OpenAI-compatible request failed at {self.endpoint}: {exc}") from exc
+        try:
+            content = response.choices[0].message.content
+            if not content:
+                raise ValueError("empty message content")
+            return ModelAnalysis.model_validate_json(content)
+        except (AttributeError, IndexError, TypeError, ValueError, ValidationError) as exc:
+            raise StructuredResponseError(
+                f"Local OpenAI-compatible server returned invalid structured data: {exc}"
+            ) from exc
 
 
 def create_provider(name: str, *, client: Any | None = None) -> AnalysisProvider:
@@ -124,9 +230,13 @@ def create_provider(name: str, *, client: Any | None = None) -> AnalysisProvider
         "openai": OpenAIProvider,
         "anthropic": AnthropicProvider,
         "gemini": GeminiProvider,
+        "ollama": OllamaProvider,
+        "local-openai": LocalOpenAIProvider,
     }
     if normalized not in providers:
-        raise AnalysisError(f"Unsupported provider {name!r}; choose openai, anthropic, or gemini")
+        raise AnalysisError(
+            f"Unsupported provider {name!r}; choose openai, anthropic, gemini, ollama, or local-openai"
+        )
     return providers[normalized](client=client)
 
 
@@ -134,9 +244,17 @@ def resolve_model(provider: str, explicit: str | None) -> str:
     if explicit:
         return explicit
     generic = os.getenv("LLM_MODEL")
-    specific = os.getenv(f"{provider.upper()}_MODEL")
+    model_variables = {
+        "openai": "OPENAI_MODEL",
+        "anthropic": "ANTHROPIC_MODEL",
+        "gemini": "GEMINI_MODEL",
+        "ollama": "OLLAMA_MODEL",
+        "local-openai": "LOCAL_OPENAI_MODEL",
+    }
+    specific = os.getenv(model_variables.get(provider, "")) if provider in model_variables else None
     if specific or generic:
         return specific or generic or ""
     if provider == "openai":
         return os.getenv("OPENAI_MODEL", "gpt-6-sol")
-    raise AnalysisError(f"A model is required for {provider}; pass --model or set {provider.upper()}_MODEL")
+    variable = model_variables.get(provider, "LLM_MODEL")
+    raise AnalysisError(f"A model is required for {provider}; pass --model or set {variable}")

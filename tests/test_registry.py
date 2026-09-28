@@ -37,9 +37,9 @@ def test_registry_migrates_previous_columns(tmp_path):
 
 def test_analysis_registry_keys_exact_provider_and_model(tmp_path):
     registry = AnalysisRegistry(tmp_path / "analyses.csv")
-    key = ("vi", "9080", "anthropic", "claude-test")
+    key = ("vi", "9080", "anthropic", "claude-test", "https://api.anthropic.com")
     registry.start(key)
     registry.success(key, tmp_path / "proposed.md", tmp_path / "analysis.json")
     reloaded = AnalysisRegistry(tmp_path / "analyses.csv")
     assert reloaded.is_success(key)
-    assert not reloaded.is_success(("vi", "9080", "anthropic", "another-model"))
+    assert not reloaded.is_success(("vi", "9080", "anthropic", "another-model", "https://api.anthropic.com"))

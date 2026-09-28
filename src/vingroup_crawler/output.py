@@ -71,6 +71,7 @@ def render_proposed_markdown(
     *,
     provider: str | None = None,
     model: str | None = None,
+    endpoint: str | None = None,
 ) -> str:
     """Render source text with proposed sections, quote changes, and VIP highlights."""
     lines = [
@@ -82,6 +83,8 @@ def render_proposed_markdown(
         lines.append(f"Publication date: {article.publication_date}")
     if provider and model:
         lines.extend([f"Analysis provider: {provider}", f"Analysis model: {model}"])
+        if endpoint:
+            lines.append(f"Analysis endpoint: {endpoint}")
     lines.extend([
         "",
         "<p><strong>Legend:</strong> "
@@ -127,6 +130,7 @@ def public_analysis(
     *,
     provider: str | None = None,
     model: str | None = None,
+    endpoint: str | None = None,
 ) -> dict:
     result = {
         "source_url": article.source_url,
@@ -142,6 +146,8 @@ def public_analysis(
     if provider and model:
         result["analysis_provider"] = provider
         result["analysis_model"] = model
+        if endpoint:
+            result["analysis_endpoint"] = endpoint
     return result
 
 
@@ -159,10 +165,10 @@ def _write_temp(directory: Path, suffix: str, content: str) -> Path:
     return path
 
 
-def _model_directory(provider: str, model: str) -> Path:
+def _model_directory(provider: str, model: str, endpoint: str) -> Path:
     provider_piece = re.sub(r"[^a-z0-9._-]+", "-", provider.lower()).strip("-") or "provider"
     model_piece = re.sub(r"[^a-zA-Z0-9._-]+", "-", model).strip("-")[:64] or "model"
-    digest = sha256(model.encode("utf-8")).hexdigest()[:8]
+    digest = sha256(f"{model}\0{endpoint}".encode("utf-8")).hexdigest()[:8]
     return Path(provider_piece) / f"{model_piece}-{digest}"
 
 
@@ -231,10 +237,11 @@ def write_analysis_outputs(
     language: str,
     provider: str,
     model: str,
+    endpoint: str,
     output_dir: Path = Path("output"),
 ) -> tuple[Path, Path]:
     stem = base_name(article)
-    model_dir = _model_directory(provider, model)
+    model_dir = _model_directory(provider, model, endpoint)
     proposed_dir = output_dir / language / "proposed" / model_dir
     json_dir = output_dir / language / "analysis" / model_dir
     proposed_dir.mkdir(parents=True, exist_ok=True)
@@ -244,13 +251,22 @@ def write_analysis_outputs(
     proposed_temp = _write_temp(
         proposed_dir,
         ".proposed.md.tmp",
-        render_proposed_markdown(article, analysis, provider=provider, model=model),
+        render_proposed_markdown(
+            article, analysis, provider=provider, model=model, endpoint=endpoint
+        ),
     )
     json_temp = _write_temp(
         json_dir,
         ".analysis.json.tmp",
         json.dumps(
-            public_analysis(article, analysis, sections, provider=provider, model=model),
+            public_analysis(
+                article,
+                analysis,
+                sections,
+                provider=provider,
+                model=model,
+                endpoint=endpoint,
+            ),
             ensure_ascii=False,
             indent=2,
         ) + "\n",

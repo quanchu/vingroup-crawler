@@ -46,7 +46,10 @@ def test_crawl_writes_only_original_source(monkeypatch, tmp_path):
 def test_analyze_uses_cached_source_and_tracks_model(monkeypatch, tmp_path):
     crawl_fixture(monkeypatch, tmp_path)
     _, _, analysis, sections = fixture_data()
-    monkeypatch.setattr("vingroup_crawler.cli.create_provider", lambda name: object())
+    monkeypatch.setattr(
+        "vingroup_crawler.cli.create_provider",
+        lambda name: type("Provider", (), {"endpoint": "https://example.test"})(),
+    )
     monkeypatch.setattr("vingroup_crawler.cli.analyze_article",
                         lambda article, provider, model: (analysis, sections))
     monkeypatch.setattr("vingroup_crawler.cli.discover_articles",
@@ -60,6 +63,7 @@ def test_analyze_uses_cached_source_and_tracks_model(monkeypatch, tmp_path):
     with (tmp_path / "output/analyses.csv").open(encoding="utf-8", newline="") as handle:
         row = next(csv.DictReader(handle))
     assert row["provider"] == "openai" and row["model"] == "test/model"
+    assert row["endpoint"] == "https://example.test"
 
 
 def test_analyze_requires_explicit_article_selection():
