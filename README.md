@@ -31,7 +31,8 @@ Analyze every cached article with a selected provider/model:
 
 ```bash
 uv run vingroup-crawler analyze --provider openai --model gpt-6-sol --id 9080
-uv run vingroup-crawler analyze --provider anthropic --model YOUR_CLAUDE_MODEL --id 9080 --id 9081
+uv run vingroup-crawler analyze --provider anthropic --model YOUR_CLAUDE_MODEL --file article-ids.txt
+uv run vingroup-crawler analyze --provider openai --model gpt-6-sol --file vingroup_article_urls_2026.txt
 uv run vingroup-crawler analyze --provider gemini --model YOUR_GEMINI_MODEL --all
 uv run vingroup-crawler analyze --provider ollama --model qwen3:14b --id 9080
 uv run vingroup-crawler analyze --provider local-openai --model local-model --id 9080
@@ -39,7 +40,7 @@ uv run vingroup-crawler analyze --provider local-openai --model local-model --id
 
 Local defaults are `http://127.0.0.1:11434` for Ollama and `http://127.0.0.1:1234/v1` for OpenAI-compatible servers. Override them with `OLLAMA_BASE_URL` and `LOCAL_OPENAI_BASE_URL`. Local inference has a default 300-second timeout controlled by `LOCAL_LLM_TIMEOUT`.
 
-Repeat `--id` to analyze only specified cached articles. The command requires at least one `--id` unless `--all` is explicitly supplied; `--id` and `--all` cannot be combined. Use `--language`, `--from`, or `--to` as additional filters. Repeating the same provider/model skips completed results; add `--force` to redo them. Changing the model creates a separate result and always reads the cached original article.
+Choose exactly one selection mode: `--id` for one cached article ID, `--file` for a UTF-8 text file with one ID or Vingroup news URL per line, or `--all` for every cached article. The file ignores blank lines and `#` comments. URL entries select the matching language and ID; numeric IDs select matching cached articles in either language. In file mode, available articles are analyzed while uncached entries are reported as failures. Use `--language`, `--from`, or `--to` as additional filters. Repeating the same provider/model skips completed results; add `--force` to redo them. Changing the model creates a separate result and always reads the cached original article.
 
 Artifacts are named by Vingroup article ID and separated by language and format:
 

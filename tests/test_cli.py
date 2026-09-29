@@ -87,21 +87,21 @@ def test_analyze_uses_cached_source_and_tracks_model(monkeypatch, tmp_path):
 def test_analyze_requires_explicit_article_selection():
     result = CliRunner().invoke(app, ["analyze", "--provider", "openai", "--model", "test/model"])
     assert result.exit_code == 2
-    assert "provide one or more --id values, or use --all" in result.output
+    assert "provide exactly one of --id, --file, or --all" in result.output
 
 
 def test_analyze_rejects_ids_with_all():
     result = CliRunner().invoke(app, ["analyze", "--provider", "openai", "--model", "test/model",
                                              "--id", "9080", "--all"])
     assert result.exit_code == 2
-    assert "provide one or more --id values, or use --all" in result.output
+    assert "provide exactly one of --id, --file, or --all" in result.output
 
 
 def test_analyze_rejects_non_numeric_id():
     result = CliRunner().invoke(app, ["analyze", "--provider", "openai", "--model", "test/model",
                                              "--id", "abc"])
     assert result.exit_code == 2
-    assert "every --id must be numeric" in result.output
+    assert "--id must be numeric" in result.output
 
 
 def test_analyze_reports_uncrawled_requested_id(monkeypatch, tmp_path):
@@ -109,7 +109,73 @@ def test_analyze_reports_uncrawled_requested_id(monkeypatch, tmp_path):
     result = CliRunner().invoke(app, ["analyze", "--provider", "openai", "--model", "test/model",
                                              "--id", "9999"])
     assert result.exit_code == 1
-    assert "requested IDs are not available" in result.output
+    assert "requested articles are not available" in result.output
+
+
+def test_analyze_file_selects_cached_id_and_url(monkeypatch, tmp_path):
+    crawl_fixture(monkeypatch, tmp_path)
+    _, _, analysis, sections = fixture_data()
+    (tmp_path / "selection.txt").write_text(
+        "# cached article\n9080\nhttps://vingroup.net/tin-tuc-su-kien/bai-viet/9080/one\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("vingroup_crawler.cli.create_provider",
+                        lambda name: type("Provider", (), {"endpoint": "https://example.test"})())
+    monkeypatch.setattr("vingroup_crawler.cli.analyze_article",
+                        lambda article, provider, model: (analysis, sections))
+    result = CliRunner().invoke(app, ["analyze", "--provider", "openai", "--model", "test/model",
+                                       "--file", "selection.txt"])
+    assert result.exit_code == 0, result.output
+    assert "Cached selected: 1 | Skipped: 0 | Analyzed: 1 | Failed: 0" in result.output
+
+
+def test_analyze_all_selects_every_cached_article(monkeypatch, tmp_path):
+    crawl_fixture(monkeypatch, tmp_path)
+    _, _, analysis, sections = fixture_data()
+    monkeypatch.setattr("vingroup_crawler.cli.create_provider",
+                        lambda name: type("Provider", (), {"endpoint": "https://example.test"})())
+    monkeypatch.setattr("vingroup_crawler.cli.analyze_article",
+                        lambda article, provider, model: (analysis, sections))
+    result = CliRunner().invoke(app, ["analyze", "--provider", "openai", "--model", "test/model", "--all"])
+    assert result.exit_code == 0, result.output
+    assert "Cached selected: 1 | Skipped: 0 | Analyzed: 1 | Failed: 0" in result.output
+
+
+def test_analyze_file_reports_missing_language_specific_url(monkeypatch, tmp_path):
+    crawl_fixture(monkeypatch, tmp_path)
+    (tmp_path / "selection.txt").write_text(
+        "https://vingroup.net/en/news/detail/9080/one\n", encoding="utf-8"
+    )
+    result = CliRunner().invoke(app, ["analyze", "--provider", "openai", "--model", "test/model",
+                                       "--file", "selection.txt"])
+    assert result.exit_code == 1
+    assert "en/9080" in result.output
+
+
+def test_analyze_file_continues_past_uncached_entries(monkeypatch, tmp_path):
+    crawl_fixture(monkeypatch, tmp_path)
+    _, _, analysis, sections = fixture_data()
+    (tmp_path / "selection.txt").write_text("9080\n9999\n", encoding="utf-8")
+    monkeypatch.setattr("vingroup_crawler.cli.create_provider",
+                        lambda name: type("Provider", (), {"endpoint": "https://example.test"})())
+    monkeypatch.setattr("vingroup_crawler.cli.analyze_article",
+                        lambda article, provider, model: (analysis, sections))
+    result = CliRunner().invoke(app, ["analyze", "--provider", "openai", "--model", "test/model",
+                                       "--file", "selection.txt"])
+    assert result.exit_code == 1
+    assert "Cached selected: 1 | Skipped: 0 | Analyzed: 1 | Failed: 1" in result.output
+    assert "9999" in result.output
+    assert list((tmp_path / "output/vi/proposed/openai").glob("*/9080.md"))
+
+
+def test_analyze_rejects_empty_file_and_combined_modes(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "selection.txt").write_text("# nothing\n", encoding="utf-8")
+    empty = CliRunner().invoke(app, ["analyze", "--file", "selection.txt"])
+    combined = CliRunner().invoke(app, ["analyze", "--id", "9080", "--file", "selection.txt"])
+    assert empty.exit_code == 2
+    assert "contains no article IDs or URLs" in empty.output
+    assert combined.exit_code == 2
 
 
 def test_crawl_requires_one_input():

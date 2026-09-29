@@ -43,14 +43,13 @@ It does not discover article URLs or call any LLM. For each input article, it wr
 
 ### 3.2 Analyze selected cached articles
 
-At least one repeatable `--id` or the explicit `--all` flag is required:
+Choose one cached article ID, a text file of IDs or article URLs, or all cached articles:
 
 ```bash
 uv run vingroup-crawler analyze \
   --provider openai \
   --model gpt-6-sol \
-  --id 9080 \
-  --id 9081
+  --file article-ids.txt
 ```
 
 Optional filters narrow the cached records further:
@@ -65,7 +64,7 @@ uv run vingroup-crawler analyze \
   --to 2026-01-31
 ```
 
-Use `--all` only when every cached article matching the other filters should be analyzed. `--all` and `--id` are mutually exclusive. IDs must be numeric, and an uncrawled requested ID is reported as an error before a provider is initialized.
+Exactly one of `--id`, `--file`, or `--all` is required. The file contains one numeric ID or Vingroup news article URL per line; blank lines and `#` comments are ignored. A URL selects its language and ID, while a numeric ID can match either language. `--all` selects every cached article matching the other filters. A missing single ID fails before a provider is initialized. In file mode, available articles are analyzed and uncached entries are reported as failures.
 
 Completed analyses for the same language, article ID, provider, model, and endpoint are skipped. Use `--force` to repeat that exact analysis from the cached source.
 
@@ -253,7 +252,7 @@ Both crawl and analysis batches continue after individual item failures. At comp
 
 - Exit code `0`: every attempted item succeeded or was already complete.
 - Exit code `1`: at least one item failed, configuration is invalid, or a requested cached ID is unavailable.
-- Exit code `2`: invalid CLI selection, such as combining `--id` with `--all` or supplying a nonnumeric ID.
+- Exit code `2`: invalid CLI selection, such as combining `--id` with `--file` or supplying a nonnumeric ID.
 
 Failures never trigger an automatic switch to another provider. A requested local analysis remains local.
 

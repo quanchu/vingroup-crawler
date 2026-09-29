@@ -94,7 +94,8 @@ def analyze(
     start_value: str | None = typer.Option(None, "--from", help="Optional cached publication-date lower bound."),
     end_value: str | None = typer.Option(None, "--to", help="Optional cached publication-date upper bound."),
     language: str | None = typer.Option(None, "--language", help="Limit to vi or en."),
-    article_ids: list[str] = typer.Option([], "--id", help="Cached article ID to analyze; repeat for multiple IDs."),
+    article_id: str | None = typer.Option(None, "--id", help="One cached article ID to analyze."),
+    file: Path | None = typer.Option(None, "--file", help="Text file with one article ID or Vingroup news URL per line."),
     analyze_all: bool = typer.Option(False, "--all", help="Analyze all cached articles matching other filters."),
     force: bool = typer.Option(False, "--force", help="Redo an existing analysis for the same provider/model."),
 ) -> None:
@@ -104,13 +105,39 @@ def analyze(
     if language not in {None, "vi", "en"}:
         error_console.print("[red]Error:[/red] --language must be vi or en")
         raise typer.Exit(code=2)
-    if analyze_all == bool(article_ids):
-        error_console.print("[red]Error:[/red] provide one or more --id values, or use --all")
+    if sum((article_id is not None, file is not None, analyze_all)) != 1:
+        error_console.print("[red]Error:[/red] provide exactly one of --id, --file, or --all")
         raise typer.Exit(code=2)
-    if any(not value.isdigit() for value in article_ids):
-        error_console.print("[red]Error:[/red] every --id must be numeric")
+    if article_id is not None and not article_id.isdigit():
+        error_console.print("[red]Error:[/red] --id must be numeric")
         raise typer.Exit(code=2)
-    selected_ids = set(article_ids)
+    selected_ids = {article_id} if article_id is not None else set()
+    selected_keys: set[tuple[str, str]] = set()
+    if file is not None:
+        try:
+            lines = file.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            error_console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+        for line_number, line in enumerate(lines, 1):
+            value = line.strip()
+            if not value or value.startswith("#"):
+                continue
+            if value.isdigit():
+                selected_ids.add(value)
+            else:
+                try:
+                    selected_language = article_language(value)
+                    selected_article_id = extract_article_id(value)
+                    if not selected_article_id:
+                        raise CrawlerError("Article URL has no numeric ID")
+                    selected_keys.add((selected_language, selected_article_id))
+                except CrawlerError as exc:
+                    error_console.print(f"[red]Error:[/red] {file}:{line_number}: {exc}")
+                    raise typer.Exit(code=2) from exc
+        if not selected_ids and not selected_keys:
+            error_console.print("[red]Error:[/red] the selection file contains no article IDs or URLs")
+            raise typer.Exit(code=2)
     try:
         start = date.fromisoformat(start_value) if start_value else None
         end = date.fromisoformat(end_value) if end_value else None
@@ -128,7 +155,7 @@ def analyze(
         published = date.fromisoformat(row["publication_date"])
         if language and row["language"] != language:
             continue
-        if selected_ids and row["article_id"] not in selected_ids:
+        if not analyze_all and row["article_id"] not in selected_ids and (row["language"], row["article_id"]) not in selected_keys:
             continue
         if start and published < start:
             continue
@@ -138,14 +165,21 @@ def analyze(
     rows.sort(key=lambda row: (row["publication_date"], row["language"], int(row["article_id"])))
     found_ids = {row["article_id"] for row in rows}
     missing_ids = sorted(selected_ids - found_ids, key=int)
-    if missing_ids:
+    found_keys = {(row["language"], row["article_id"]) for row in rows}
+    missing_keys = sorted(selected_keys - found_keys, key=lambda key: (key[0], int(key[1])))
+    missing = missing_ids + [f"{lang}/{article_id}" for lang, article_id in missing_keys]
+    if missing and file is None:
         error_console.print(
-            f"[red]Error:[/red] requested IDs are not available in the selected cached sources: "
-            f"{', '.join(missing_ids)}"
+            "[red]Error:[/red] requested articles are not available in the selected cached sources: "
+            + ", ".join(missing)
         )
         raise typer.Exit(code=1)
     if not rows:
-        console.print("Cached selected: 0 | Skipped: 0 | Analyzed: 0 | Failed: 0")
+        console.print(f"Cached selected: 0 | Skipped: 0 | Analyzed: 0 | Failed: {len(missing)}")
+        for requested in missing:
+            error_console.print(f"[red]Missing cached article:[/red] {requested}")
+        if missing:
+            raise typer.Exit(code=1)
         return
     try:
         adapter = create_provider(provider_name)
@@ -153,8 +187,9 @@ def analyze(
         error_console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
 
-    skipped = succeeded = failed = 0
-    failures: list[str] = []
+    skipped = succeeded = 0
+    failed = len(missing)
+    failures = [f"not available in selected cached sources: {requested}" for requested in missing]
     for row in rows:
         key = (
             row["language"],
