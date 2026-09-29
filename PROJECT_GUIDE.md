@@ -207,11 +207,11 @@ When the response indicates a Cloudflare challenge, the crawler tries a persiste
 Browser settings are controlled by:
 
 ```dotenv
-VINGROUP_BROWSER_CHANNEL=chromium
+VINGROUP_BROWSER_CHANNEL=default
 VINGROUP_BROWSER_PROFILE=.vingroup-browser-profile
 ```
 
-Set `VINGROUP_BROWSER_CHANNEL=default` to use the current macOS default browser, or `chrome` for local Chrome. The selected browser must be Chromium compatible. The crawler uses a separate profile. The browser challenge timeout is 30 seconds. If the site rejects unattended automation, the crawl reports a failure rather than waiting for manual intervention.
+On macOS the crawler uses the current default browser; elsewhere it uses Playwright Chromium. Set `VINGROUP_BROWSER_CHANNEL=chromium`, `chrome`, or `default` to override that choice. The selected browser must be Chromium compatible. The crawler uses a separate profile. The browser challenge timeout is 30 seconds. If the site rejects unattended automation, the crawl reports a failure rather than waiting for manual intervention.
 
 ## 9. Analysis Contract
 

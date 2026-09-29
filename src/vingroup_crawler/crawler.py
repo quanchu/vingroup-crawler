@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import plistlib
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
@@ -117,7 +118,7 @@ def fetch_html_with_browser(url: str) -> tuple[str, str]:
                 "ignore_default_args": ["--enable-automation"],
                 "args": ["--disable-blink-features=AutomationControlled"],
             }
-            channel = os.getenv("VINGROUP_BROWSER_CHANNEL", "chromium").strip()
+            channel = os.getenv("VINGROUP_BROWSER_CHANNEL", "default" if sys.platform == "darwin" else "chromium").strip()
             if channel == "default":
                 launch_options["executable_path"] = str(_default_browser_executable())
             elif channel and channel != "chromium":
