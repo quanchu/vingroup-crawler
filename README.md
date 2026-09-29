@@ -60,7 +60,7 @@ output/
     └── analysis/<provider>/<model-hash>/9080.json
 ```
 
-The `markdown` and `crawled` artifacts are provider-independent source records. Each `proposed` artifact adds headings and highlights, while each analysis JSON includes `analysis_provider`, the exact `analysis_model`, and `analysis_endpoint`.
+The `markdown` and `crawled` artifacts are provider-independent source records. Each `proposed` artifact adds headings, highlights, a table of confirmed VIP personnel, and a table of all corporate-boilerplate sections with source excerpts. People marked `Review` are not listed as confirmed VIPs. Each analysis JSON includes `analysis_provider`, the exact `analysis_model`, and `analysis_endpoint`.
 
 Both Markdown formats begin with YAML front matter containing `title`, `publication_date`, and `source_url`.
 

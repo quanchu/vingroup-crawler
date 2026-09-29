@@ -67,6 +67,37 @@ def _highlight_source(text: str, analysis: ModelAnalysis) -> str:
     return rendered
 
 
+def _table_cell(value: str | None) -> str:
+    return escape(value or "—").replace("|", "&#124;").replace("\n", "<br>")
+
+
+def _summary_tables(article: Article, analysis: ModelAnalysis) -> list[str]:
+    lines = ["## VIP personnel", "", "| Name | Title | Organization | Evidence |", "| --- | --- | --- | --- |"]
+    vips = [person for person in analysis.people if person.assessment == "VIP"]
+    if vips:
+        for person in vips:
+            lines.append(
+                f"| {_table_cell(person.name)} | {_table_cell(person.title_as_stated)} | "
+                f"{_table_cell(person.organization)} | {_table_cell(person.evidence)} |"
+            )
+    else:
+        lines.append("| None identified | — | — | — |")
+
+    lines.extend(["", "## Company boilerplate", "", "| Section | Paragraphs | Excerpt |", "| --- | --- | --- |"])
+    boilerplate = [section for section in analysis.sections if section.section_type == "corporate_boilerplate"]
+    if boilerplate:
+        for section in boilerplate:
+            source = " ".join(section_text(section, article.paragraphs).split())
+            excerpt = source[:200].rstrip() + ("…" if len(source) > 200 else "")
+            location = f"P{section.start_paragraph}"
+            if section.end_paragraph != section.start_paragraph:
+                location += f"–P{section.end_paragraph}"
+            lines.append(f"| {_table_cell(section.heading)} | {location} | {_table_cell(excerpt)} |")
+    else:
+        lines.append("| None identified | — | — |")
+    return lines + [""]
+
+
 def render_proposed_markdown(
     article: Article,
     analysis: ModelAnalysis,
@@ -89,6 +120,7 @@ def render_proposed_markdown(
         f'<span style="background-color: {INDIRECT_COLOR};">Suggested indirect wording</span></p>',
         "",
     ])
+    lines.extend(_summary_tables(article, analysis))
 
     quotes_by_section: dict[int, list] = {}
     for quote in analysis.quote_changes:

@@ -61,6 +61,65 @@ def test_proposed_markdown_highlights_quotes_vips_and_indirect_wording():
     assert 'background-color: #ffd6e7' in rendered
     assert "Suggested indirect wording (q1)" in rendered
     assert "would invest 10 dollars" in rendered
+    assert "| Nguyen Van A | CEO | Example | Nguyen Van A said |" in rendered
+    assert "| None identified | — | — |" in rendered
+
+
+def test_proposed_markdown_summarizes_all_vips_and_boilerplate_sections():
+    article = Article(
+        source_url="https://vingroup.net/en/news/detail/123/test",
+        title="Test",
+        publication_date="2026-01-01",
+        paragraphs=[
+            "Alice A leads A & B. Bob B advises it.",
+            "About A | B: A & B makes cars.",
+            "About C: C builds batteries.",
+        ],
+        article_id="123",
+        slug="test",
+    )
+    analysis = ModelAnalysis.model_validate({
+        "sections": [
+            {"heading": "People", "section_type": "narrative", "start_paragraph": 1,
+             "end_paragraph": 1, "start_char": None, "end_char": None},
+            {"heading": "About A | B", "section_type": "corporate_boilerplate", "start_paragraph": 2,
+             "end_paragraph": 2, "start_char": None, "end_char": None},
+            {"heading": "About C", "section_type": "corporate_boilerplate", "start_paragraph": 3,
+             "end_paragraph": 3, "start_char": None, "end_char": None},
+        ],
+        "people": [
+            {"name": "Alice A", "title_as_stated": "CEO", "organization": "A & B",
+             "assessment": "VIP", "evidence": "Alice A leads A & B", "reason": None},
+            {"name": "Bob B", "title_as_stated": None, "organization": None,
+             "assessment": "Review", "evidence": "Bob B advises it", "reason": "Unclear seniority"},
+        ],
+        "quote_changes": [],
+    })
+    rendered = render_proposed_markdown(article, analysis)
+    summary = rendered.split("## People", 1)[0]
+    assert "| Alice A | CEO | A &amp; B | Alice A leads A &amp; B |" in summary
+    assert "Bob B" not in summary
+    assert "| About A &#124; B | P2 | About A &#124; B: A &amp; B makes cars. |" in summary
+    assert "| About C | P3 | About C: C builds batteries. |" in summary
+
+
+def test_proposed_markdown_summarizes_boilerplate_character_span():
+    article = Article(source_url="https://vingroup.net/en/news/detail/124/test", title="T",
+                      publication_date=None, paragraphs=["Intro. About C: C builds batteries."],
+                      article_id="124", slug="test")
+    analysis = ModelAnalysis.model_validate({
+        "sections": [
+            {"heading": "Intro", "section_type": "narrative", "start_paragraph": 1,
+             "end_paragraph": 1, "start_char": 0, "end_char": 7},
+            {"heading": "About C", "section_type": "corporate_boilerplate", "start_paragraph": 1,
+             "end_paragraph": 1, "start_char": 7, "end_char": None},
+        ],
+        "people": [], "quote_changes": [],
+    })
+    summary = render_proposed_markdown(article, analysis).split("## Intro", 1)[0]
+    assert "| None identified | — | — | — |" in summary
+    assert "| About C | P1 | About C: C builds batteries. |" in summary
+    assert "Intro." not in summary
 
 
 def test_analysis_paths_distinguish_local_endpoints(tmp_path):
