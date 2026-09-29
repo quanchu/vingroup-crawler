@@ -23,15 +23,17 @@ def base_name(article: Article) -> str:
 
 
 def render_markdown(article: Article) -> str:
-    lines = [f"# {article.title}", "", f"Source: {article.source_url}"]
-    if article.publication_date:
-        lines.append(f"Publication date: {article.publication_date}")
-    lines.append("")
+    lines = _frontmatter(article) + [f"# {article.title}", ""]
     for index, paragraph in enumerate(article.paragraphs, 1):
         if index in article.headings:
             lines.extend([f"## {article.headings[index]}", ""])
         lines.extend([paragraph, ""])
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _frontmatter(article: Article) -> list[str]:
+    metadata = {"title": article.title, "publication_date": article.publication_date, "source_url": article.source_url}
+    return ["---", *(f"{key}: {json.dumps(value, ensure_ascii=False)}" for key, value in metadata.items()), "---", ""]
 
 
 def _highlight_source(text: str, analysis: ModelAnalysis) -> str:
@@ -74,13 +76,7 @@ def render_proposed_markdown(
     endpoint: str | None = None,
 ) -> str:
     """Render source text with proposed sections, quote changes, and VIP highlights."""
-    lines = [
-        f"# {article.title}",
-        "",
-        f"Source: {article.source_url}",
-    ]
-    if article.publication_date:
-        lines.append(f"Publication date: {article.publication_date}")
+    lines = _frontmatter(article) + [f"# {article.title}", ""]
     if provider and model:
         lines.extend([f"Analysis provider: {provider}", f"Analysis model: {model}"])
         if endpoint:

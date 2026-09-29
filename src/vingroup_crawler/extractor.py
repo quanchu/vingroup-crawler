@@ -189,5 +189,5 @@ def extract_article(html: str, source_url: str) -> Article:
 def extract_article_id(url: str) -> str | None:
     """Return the numeric ID from a canonical localized Vingroup detail route."""
     path = unquote(urlsplit(url).path)
-    match = re.search(r"/(?:bai-viet|articles)/(\d+)(?:/|$)", path, re.IGNORECASE)
+    match = re.search(r"/(?:bai-viet|chi-tiet|detail)/(\d+)(?:/|$)", path, re.IGNORECASE)
     return match.group(1) if match else None

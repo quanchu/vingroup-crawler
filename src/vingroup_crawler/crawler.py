@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import plistlib
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
+from xml.parsers.expat import ExpatError
 
 import httpx
 
@@ -13,7 +15,7 @@ ALLOWED_HOSTS = {"vingroup.net", "www.vingroup.net"}
 MAX_REDIRECTS = 5
 MAX_BYTES = 5 * 1024 * 1024
 USER_AGENT = "vingroup-crawler/0.1 (+article research)"
-BROWSER_TIMEOUT_MS = 120_000
+BROWSER_TIMEOUT_MS = 30_000
 CHALLENGE_MARKERS = (
     b"<title>Just a moment...</title>",
     b"/cdn-cgi/challenge-platform/",
@@ -53,22 +55,48 @@ def _read_limited(response: httpx.Response) -> bytes:
 def _is_cloudflare_challenge(response: httpx.Response, body: bytes) -> bool:
     return (
         response.headers.get("cf-mitigated", "").lower() == "challenge"
-        or (
-            response.headers.get("server", "").lower() == "cloudflare"
-            and any(marker.lower() in body.lower() for marker in CHALLENGE_MARKERS)
-        )
+        or any(marker.lower() in body.lower() for marker in CHALLENGE_MARKERS)
+        or (response.status_code == 403 and response.headers.get("server", "").lower() == "cloudflare")
     )
 
 
-def _env_flag(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+def _default_browser_executable(
+    preferences: Path | None = None,
+    application_dirs: tuple[Path, ...] | None = None,
+) -> Path:
+    preferences = preferences or Path.home() / "Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist"
+    application_dirs = application_dirs or (Path("/Applications"), Path.home() / "Applications", Path("/System/Applications"))
+    try:
+        handlers = plistlib.loads(preferences.read_bytes()).get("LSHandlers", [])
+        browser_id = next(
+            (item.get("LSHandlerRoleAll") for item in handlers
+             if item.get("LSHandlerContentType") == "com.apple.default-app.web-browser"),
+            None,
+        ) or next(
+            (item.get("LSHandlerRoleAll") for item in handlers if item.get("LSHandlerURLScheme") == "https"),
+            None,
+        )
+    except (OSError, ValueError, TypeError, ExpatError) as exc:
+        raise CrawlerError(f"Could not read macOS default browser setting: {exc}") from exc
+    if not browser_id:
+        raise CrawlerError("macOS has no default browser configured")
+    if browser_id.casefold() == "com.apple.safari":
+        raise CrawlerError("Default Safari cannot be launched through Playwright's Chromium engine")
+    for directory in application_dirs:
+        for bundle in directory.glob("*.app"):
+            try:
+                info = plistlib.loads((bundle / "Contents/Info.plist").read_bytes())
+            except (OSError, ValueError, TypeError, ExpatError):
+                continue
+            if str(info.get("CFBundleIdentifier", "")).casefold() == browser_id.casefold():
+                executable = bundle / "Contents/MacOS" / info.get("CFBundleExecutable", "")
+                if executable.is_file():
+                    return executable
+    raise CrawlerError(f"Could not locate the macOS default browser application ({browser_id})")
 
 
 def fetch_html_with_browser(url: str) -> tuple[str, str]:
-    """Resolve a Cloudflare challenge in Chromium and return the final HTML."""
+    """Try an unattended Chromium fetch after an HTTP challenge."""
     original = validate_url(url)
     try:
         from playwright.sync_api import Error as PlaywrightError
@@ -83,14 +111,16 @@ def fetch_html_with_browser(url: str) -> tuple[str, str]:
     try:
         with sync_playwright() as playwright:
             launch_options = {
-                "headless": _env_flag("VINGROUP_BROWSER_HEADLESS"),
+                "headless": True,
                 "viewport": {"width": 1280, "height": 900},
                 "locale": "vi-VN",
                 "ignore_default_args": ["--enable-automation"],
                 "args": ["--disable-blink-features=AutomationControlled"],
             }
-            channel = os.getenv("VINGROUP_BROWSER_CHANNEL", "chrome").strip()
-            if channel and channel != "chromium":
+            channel = os.getenv("VINGROUP_BROWSER_CHANNEL", "chromium").strip()
+            if channel == "default":
+                launch_options["executable_path"] = str(_default_browser_executable())
+            elif channel and channel != "chromium":
                 launch_options["channel"] = channel
             try:
                 context = playwright.chromium.launch_persistent_context(
@@ -98,7 +128,7 @@ def fetch_html_with_browser(url: str) -> tuple[str, str]:
                     **launch_options,
                 )
             except PlaywrightError as exc:
-                if channel and channel != "chromium" and (
+                if channel and channel not in {"chromium", "default"} and (
                     "Executable doesn't exist" in str(exc) or "not found" in str(exc).lower()
                 ):
                     launch_options.pop("channel", None)
@@ -177,7 +207,7 @@ def fetch_html_with_browser(url: str) -> tuple[str, str]:
                 context.close()
     except PlaywrightTimeoutError as exc:
         raise CrawlerError(
-            "Cloudflare challenge did not complete within 120 seconds; retry and complete it in the browser window"
+            f"Cloudflare challenge did not clear in unattended {channel or 'Chromium'} within 30 seconds; Vingroup is blocking automated access"
         ) from exc
     except CrawlerError:
         raise
@@ -210,7 +240,7 @@ def fetch_html(
                             raise CrawlerError("Redirect response did not include a Location header")
                         current = validate_url(urljoin(current, location))
                         continue
-                    if response.status_code == 403:
+                    if response.status_code in {403, 429, 503}:
                         raw = _read_limited(response)
                         if _is_cloudflare_challenge(response, raw):
                             fallback = browser_fetcher or fetch_html_with_browser
@@ -221,6 +251,9 @@ def fetch_html(
                     if content_type not in {"text/html", "application/xhtml+xml"}:
                         raise CrawlerError(f"Expected HTML but received {content_type or 'an unknown content type'}")
                     raw = _read_limited(response)
+                    if _is_cloudflare_challenge(response, raw):
+                        fallback = browser_fetcher or fetch_html_with_browser
+                        return fallback(current)
                     encoding = response.encoding or "utf-8"
                     return raw.decode(encoding, errors="replace"), validate_url(str(response.url))
             except httpx.HTTPStatusError as exc:

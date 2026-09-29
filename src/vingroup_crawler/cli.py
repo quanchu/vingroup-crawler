@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, timedelta
+from datetime import date
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import typer
 from dotenv import load_dotenv
@@ -11,8 +10,9 @@ from rich.console import Console
 
 from .analyzer import analyze_article
 from .crawler import fetch_html
-from .discovery import discover_articles
+from .discovery import article_language, discover_urls
 from .errors import AnalysisError, CrawlerError
+from .extractor import extract_article_id
 from .output import load_crawled_article, remove_legacy_outputs, write_analysis_outputs, write_crawl_outputs
 from .providers import create_provider, resolve_model
 from .registry import AnalysisRegistry, CrawlRegistry
@@ -20,42 +20,41 @@ from .registry import AnalysisRegistry, CrawlRegistry
 app = typer.Typer(add_completion=False, help="Crawl Vingroup articles and analyze cached sources with multiple LLM providers.")
 console = Console()
 error_console = Console(stderr=True)
-DEFAULT_LOOKBACK_DAYS = 30
-
-
-def _today() -> date:
-    return datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
-
-
-def _range(start_value: str | None, end_value: str | None) -> tuple[date, date]:
-    try:
-        end = date.fromisoformat(end_value) if end_value else _today()
-        start = date.fromisoformat(start_value) if start_value else end - timedelta(days=DEFAULT_LOOKBACK_DAYS)
-    except ValueError as exc:
-        raise ValueError("--from and --to must use YYYY-MM-DD") from exc
-    if end < start:
-        raise ValueError("--to must be on or after --from")
-    return start, end
-
-
 @app.command()
 def crawl(
-    start_value: str | None = typer.Option(None, "--from", help="Inclusive start; defaults to 30 days before --to."),
-    end_value: str | None = typer.Option(None, "--to", help="Inclusive end; defaults to today in Vietnam."),
+    url: str | None = typer.Option(None, "--url", help="One Vingroup news article URL."),
+    file: Path | None = typer.Option(None, "--file", help="Text file containing one article URL per line."),
 ) -> None:
-    """Discover and cache original articles without calling an LLM."""
+    """Crawl one URL or a text file of URLs without calling an LLM."""
     load_dotenv()
+    if (url is None) == (file is None):
+        error_console.print("[red]Error:[/red] provide exactly one of --url or --file")
+        raise typer.Exit(code=2)
+    cached_skipped = 0
     try:
-        start, end = _range(start_value, end_value)
+        selected = [url] if url is not None else [
+            line.strip() for line in file.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        if not selected:
+            raise ValueError("The URL file contains no article URLs")
         output_dir = Path("output")
         remove_legacy_outputs(output_dir)
         registry = CrawlRegistry(output_dir / "crawled_articles.csv")
-        discovered, articles, discovery_failures = discover_articles(start, end, fetch=fetch_html)
+        pending = []
+        for selected_url in selected:
+            language = article_language(selected_url)
+            article_id = extract_article_id(selected_url)
+            if article_id and registry.is_success(language, article_id):
+                cached_skipped += 1
+            else:
+                pending.append(selected_url)
+        discovered, articles, discovery_failures = discover_urls(pending, fetch=fetch_html)
     except (CrawlerError, OSError, ValueError) as exc:
         error_console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
 
-    skipped = succeeded = failed = 0
+    skipped, succeeded, failed = cached_skipped, 0, 0
     failures: list[str] = []
     for item, message in discovery_failures:
         registry.failed(item, message)
@@ -77,7 +76,7 @@ def crawl(
             registry.failed(item, str(exc))
             failed += 1
             failures.append(f"{item.language}/{item.article_id}: {exc}")
-    console.print(f"Discovered: {len(discovered) + len(discovery_failures)} | Skipped: {skipped} | Crawled: {succeeded} | Failed: {failed}")
+    console.print(f"Selected: {len(discovered) + len(discovery_failures) + cached_skipped} | Skipped: {skipped} | Crawled: {succeeded} | Failed: {failed}")
     for message in failures:
         error_console.print(f"[red]Failed:[/red] {message}")
     if failed:

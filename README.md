@@ -19,10 +19,13 @@ Local analysis supports native Ollama and OpenAI-compatible servers such as LM S
 ## Run
 
 ```bash
-uv run vingroup-crawler crawl --from 2026-01-01 --to 2026-01-31
+uv run vingroup-crawler crawl --url 'https://vingroup.net/en/news/detail/9087/green-gsm-officially-launches-all-electric-taxi-service-in-northern-mindanao-philippines'
+uv run vingroup-crawler crawl --file article-urls.txt
 ```
 
-Dates use ISO `YYYY-MM-DD` format and are inclusive. `--to` defaults to today in `Asia/Ho_Chi_Minh`; `--from` defaults to 30 days before the effective upper bound. The crawl command never calls an LLM. It stores the exact extracted article model as JSON so later analyses do not need network access to Vingroup.
+The crawl command requires exactly one input: `--url` for one article, or `--file` for a UTF-8 text file with one article URL per line. It ignores blank lines and lines beginning with `#`. It never calls an LLM and stores each extracted article as JSON so later analyses do not need network access to Vingroup.
+
+Only article URLs from the [Vietnamese news section](https://vingroup.net/vi/tin-tuc-su-kien) and [English news section](https://vingroup.net/en/news) are accepted. The crawler does not discover URLs from listing pages.
 
 Analyze every cached article with a selected provider/model:
 
@@ -58,9 +61,11 @@ output/
 
 The `markdown` and `crawled` artifacts are provider-independent source records. Each `proposed` artifact adds headings and highlights, while each analysis JSON includes `analysis_provider`, the exact `analysis_model`, and `analysis_endpoint`.
 
+Both Markdown formats begin with YAML front matter containing `title`, `publication_date`, and `source_url`.
+
 `crawled_articles.csv` tracks source acquisition. `analyses.csv` tracks every `(language, article ID, provider, model, endpoint)` result and its files. Both processes continue after individual failures and exit nonzero when any item failed.
 
-The crawler normally uses a lightweight HTTP request. If Vingroup returns a Cloudflare JavaScript challenge, it automatically opens the locally installed stable Chrome with a persistent local profile, falling back to Playwright's Chromium when Chrome is unavailable. Complete the challenge in that window if prompted; the crawler waits for up to two minutes. Set `VINGROUP_BROWSER_HEADLESS=1` only in environments where a visible browser is unavailable; Cloudflare may be less likely to accept a headless browser. Set `VINGROUP_BROWSER_CHANNEL=chromium` to skip the local Chrome preference.
+The crawler normally uses a lightweight HTTP request. On a Cloudflare challenge it tries a headless browser without user interaction, waiting up to 30 seconds. Vingroup may still block automated access; in that case the command fails with a clear error. There is no reliable local bypass for a challenge enforced by the site. Set `VINGROUP_BROWSER_CHANNEL=default` to use the current macOS default browser, or `chrome` to use Chrome, instead of Playwright Chromium. The selected browser must be Chromium compatible, and the crawler uses its own profile.
 
 ## Test
 

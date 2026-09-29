@@ -30,20 +30,16 @@ Never commit `.env`; it is ignored by Git. Add only the API keys and defaults ne
 ### 3.1 Crawl articles
 
 ```bash
-uv run vingroup-crawler crawl --from 2026-01-01 --to 2026-01-31
+uv run vingroup-crawler crawl --url 'https://vingroup.net/en/news/detail/9087/green-gsm-officially-launches-all-electric-taxi-service-in-northern-mindanao-philippines'
+uv run vingroup-crawler crawl --file article-urls.txt
 ```
 
-The dates are inclusive ISO dates. If omitted:
+The crawl command requires either one article URL or a UTF-8 text file with one article URL per line. Blank lines and `#` comments in the file are ignored. Only article URLs from these news sections are accepted:
 
-- `--to` is today in `Asia/Ho_Chi_Minh`.
-- `--from` is 30 days before the effective `--to` date.
+- Vietnamese: `/vi/tin-tuc-su-kien` (article links may use `/tin-tuc-su-kien/bai-viet/{id}/...`)
+- English: `/en/news` (article links use `/en/news/detail/{id}/...`)
 
-The crawl command processes both language editions:
-
-- Vietnamese: `/tin-tuc-su-kien/bai-viet/{id}/...`
-- English: `/en/news-events/articles/{id}/...`
-
-It does not call any LLM. For every article in range, it writes the original Markdown and a structured JSON cache containing the exact extracted paragraphs and meaningful source headings.
+It does not discover article URLs or call any LLM. For each input article, it writes the original Markdown and a structured JSON cache containing the exact extracted paragraphs and meaningful source headings.
 
 ### 3.2 Analyze selected cached articles
 
@@ -150,7 +146,7 @@ The directory hash is derived from both the exact model ID and provider endpoint
 
 ### Source artifacts
 
-- `markdown/{id}.md` contains the original extracted title, source URL, publication date, headings, and paragraphs.
+- `markdown/{id}.md` contains YAML front matter with title, source URL, and publication date, followed by original extracted headings and paragraphs.
 - `crawled/{id}.json` is the canonical machine-readable `Article` cache used by every analysis run.
 
 ### Analysis artifacts
@@ -184,14 +180,13 @@ Both registries are rewritten through temporary files and atomic replacement. Ou
 
 The crawl command follows this sequence:
 
-1. Validate the requested date range.
-2. Traverse Vietnamese and English listing pagination.
-3. Keep only exact Vingroup detail-route links and deduplicate by language and article ID.
-4. Fetch each detail page and extract its publication date.
-5. Include only articles whose authoritative detail-page date falls inside the inclusive range.
-6. Isolate the article title, meaningful headings, and ordered body paragraphs.
-7. Write original Markdown and canonical source JSON.
-8. Update `crawled_articles.csv` after every article.
+1. Read one URL or a text file of URLs.
+2. Validate news detail routes and deduplicate by language and article ID.
+3. Skip articles already cached successfully.
+4. Fetch each remaining detail page and extract its publication date.
+5. Isolate the article title, meaningful headings, and ordered body paragraphs.
+6. Write original Markdown and canonical source JSON.
+7. Update `crawled_articles.csv` after every article.
 
 The extractor prefers known Vingroup article containers and falls back to scored semantic containers. Navigation, sharing controls, related stories, cookie UI, forms, advertising, and footer content are removed. Pages without enough confidently isolated body text are rejected rather than guessed.
 
@@ -207,17 +202,16 @@ The HTTP path enforces:
 - HTML content types;
 - a 5 MiB response limit.
 
-When the response is explicitly identified as a Cloudflare managed challenge, the crawler opens a persistent Chrome/Chromium context. Main-frame navigation is still restricted to the allowed Vingroup hosts. Images, media, and fonts are blocked because they are unnecessary for extraction.
+When the response indicates a Cloudflare challenge, the crawler tries a persistent headless browser context without user interaction. Main-frame navigation is restricted to the allowed Vingroup hosts. Images, media, and fonts are blocked because they are unnecessary for extraction.
 
 Browser settings are controlled by:
 
 ```dotenv
-VINGROUP_BROWSER_HEADLESS=0
-VINGROUP_BROWSER_CHANNEL=chrome
+VINGROUP_BROWSER_CHANNEL=chromium
 VINGROUP_BROWSER_PROFILE=.vingroup-browser-profile
 ```
 
-Headed Chrome is the default because Cloudflare is more likely to reject headless automation. The browser challenge timeout is two minutes.
+Set `VINGROUP_BROWSER_CHANNEL=default` to use the current macOS default browser, or `chrome` for local Chrome. The selected browser must be Chromium compatible. The crawler uses a separate profile. The browser challenge timeout is 30 seconds. If the site rejects unattended automation, the crawl reports a failure rather than waiting for manual intervention.
 
 ## 9. Analysis Contract
 
@@ -285,7 +279,7 @@ Normal tests do not call Vingroup or consume paid LLM API credits.
 
 - `cli.py`: command definitions and batch orchestration.
 - `crawler.py`: secure HTTP fetching and Cloudflare browser fallback.
-- `discovery.py`: localized listing traversal and date-range selection.
+- `discovery.py`: validation and deduplication of supplied article URLs.
 - `extractor.py`: Vingroup article-body and metadata extraction.
 - `models.py`: strict source and analysis Pydantic models.
 - `providers.py`: hosted and local LLM adapters.

@@ -1,5 +1,4 @@
 import csv
-from datetime import date
 
 from typer.testing import CliRunner
 
@@ -25,9 +24,9 @@ def fixture_data():
 def crawl_fixture(monkeypatch, tmp_path):
     item, article, _, _ = fixture_data()
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("vingroup_crawler.cli.discover_articles",
-                        lambda start, end, fetch: ([item], {("vi", "9080"): article}, []))
-    result = CliRunner().invoke(app, ["crawl", "--from", "2026-01-01", "--to", "2026-01-31"])
+    monkeypatch.setattr("vingroup_crawler.cli.discover_urls",
+                        lambda urls, fetch: ([item], {("vi", "9080"): article}, []))
+    result = CliRunner().invoke(app, ["crawl", "--url", "https://vingroup.net/tin-tuc-su-kien/bai-viet/9080/one"])
     assert result.exit_code == 0, result.output
     return item, article
 
@@ -43,6 +42,25 @@ def test_crawl_writes_only_original_source(monkeypatch, tmp_path):
     assert row["source_json_path"].endswith("output/vi/crawled/9080.json")
 
 
+def test_crawl_accepts_url_file(monkeypatch, tmp_path):
+    item, article, _, _ = fixture_data()
+    monkeypatch.chdir(tmp_path)
+    urls = ["https://vingroup.net/tin-tuc-su-kien/bai-viet/9080/one",
+            "https://vingroup.net/en/news/detail/42/two"]
+    (tmp_path / "urls.txt").write_text("# comment\n" + "\n".join(urls) + "\n", encoding="utf-8")
+    seen = []
+
+    def selected(values, fetch):
+        seen.extend(values)
+        return [item], {("vi", "9080"): article}, []
+
+    monkeypatch.setattr("vingroup_crawler.cli.discover_urls", selected)
+    result = CliRunner().invoke(app, ["crawl", "--file", "urls.txt"])
+    assert result.exit_code == 0, result.output
+    assert seen == urls
+    assert (tmp_path / "output/vi/markdown/9080.md").exists()
+
+
 def test_analyze_uses_cached_source_and_tracks_model(monkeypatch, tmp_path):
     crawl_fixture(monkeypatch, tmp_path)
     _, _, analysis, sections = fixture_data()
@@ -52,7 +70,7 @@ def test_analyze_uses_cached_source_and_tracks_model(monkeypatch, tmp_path):
     )
     monkeypatch.setattr("vingroup_crawler.cli.analyze_article",
                         lambda article, provider, model: (analysis, sections))
-    monkeypatch.setattr("vingroup_crawler.cli.discover_articles",
+    monkeypatch.setattr("vingroup_crawler.cli.discover_urls",
                         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not crawl")))
     result = CliRunner().invoke(app, ["analyze", "--provider", "openai", "--model", "test/model", "--id", "9080"])
     assert result.exit_code == 0, result.output
@@ -94,28 +112,21 @@ def test_analyze_reports_uncrawled_requested_id(monkeypatch, tmp_path):
     assert "requested IDs are not available" in result.output
 
 
-def test_crawl_rejects_reversed_range():
-    result = CliRunner().invoke(app, ["crawl", "--from", "2026-02-01", "--to", "2026-01-01"])
-    assert result.exit_code == 1
-    assert "--to must be on or after --from" in result.output
-
-
-def test_crawl_defaults_both_dates(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    captured = {}
-    monkeypatch.setattr("vingroup_crawler.cli.discover_articles",
-                        lambda start, end, fetch: (captured.setdefault("range", (start, end)) and ([], {}, [])))
-    monkeypatch.setattr("vingroup_crawler.cli._today", lambda: date(2026, 9, 28))
+def test_crawl_requires_one_input():
     result = CliRunner().invoke(app, ["crawl"])
-    assert result.exit_code == 0, result.output
-    assert captured["range"] == (date(2026, 8, 29), date(2026, 9, 28))
+    assert result.exit_code == 2
+    assert "provide exactly one of --url or --file" in result.output
 
 
-def test_crawl_defaults_from_relative_to_explicit_to(monkeypatch, tmp_path):
+def test_crawl_rejects_both_inputs():
+    result = CliRunner().invoke(app, ["crawl", "--url", "https://vingroup.net/en/news/detail/42/two", "--file", "urls.txt"])
+    assert result.exit_code == 2
+    assert "provide exactly one of --url or --file" in result.output
+
+
+def test_crawl_rejects_empty_url_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    captured = {}
-    monkeypatch.setattr("vingroup_crawler.cli.discover_articles",
-                        lambda start, end, fetch: (captured.setdefault("range", (start, end)) and ([], {}, [])))
-    result = CliRunner().invoke(app, ["crawl", "--to", "2026-02-15"])
-    assert result.exit_code == 0, result.output
-    assert captured["range"] == (date(2026, 1, 16), date(2026, 2, 15))
+    (tmp_path / "urls.txt").write_text("# no URLs\n\n", encoding="utf-8")
+    result = CliRunner().invoke(app, ["crawl", "--file", "urls.txt"])
+    assert result.exit_code == 1
+    assert "contains no article URLs" in result.output

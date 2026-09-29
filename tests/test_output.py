@@ -19,6 +19,7 @@ def test_writes_cached_source_and_model_specific_analysis(tmp_path):
     assert crawl_paths[0] == (tmp_path / "vi/markdown/456.md").resolve()
     assert crawl_paths[1] == (tmp_path / "vi/crawled/456.json").resolve()
     assert "Dự án mới" in crawl_paths[0].read_text(encoding="utf-8")
+    assert crawl_paths[0].read_text(encoding="utf-8").startswith('---\ntitle: "Dự án mới"\npublication_date: null\n')
     assert "## Nội dung" in analysis_paths[0].read_text(encoding="utf-8")
     payload = json.loads(analysis_paths[1].read_text(encoding="utf-8"))
     assert payload["paragraphs"] is None
@@ -53,6 +54,7 @@ def test_proposed_markdown_highlights_quotes_vips_and_indirect_wording():
             "status": "proposed", "notes": "Resolved we to the company."}],
     })
     rendered = render_proposed_markdown(article, analysis)
+    assert rendered.startswith('---\ntitle: "Test"\npublication_date: "2026-01-01"\n')
     assert "## Introduction" in rendered
     assert "## Nguyen Van A on investment" in rendered
     assert 'background-color: #fff3a3' in rendered
