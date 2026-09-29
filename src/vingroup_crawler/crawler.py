@@ -16,14 +16,7 @@ ALLOWED_HOSTS = {"vingroup.net", "www.vingroup.net"}
 MAX_REDIRECTS = 5
 MAX_BYTES = 5 * 1024 * 1024
 USER_AGENT = "vingroup-crawler/0.1 (+article research)"
-BROWSER_TIMEOUT_MS = 30_000
-CHALLENGE_MARKERS = (
-    b"<title>Just a moment...</title>",
-    b"/cdn-cgi/challenge-platform/",
-    b"Enable JavaScript and cookies to continue",
-)
-
-
+BROWSER_TIMEOUT_MS = 120_000
 def validate_url(url: str) -> str:
     try:
         parsed = urlsplit(url.strip())
@@ -54,11 +47,22 @@ def _read_limited(response: httpx.Response) -> bytes:
 
 
 def _is_cloudflare_challenge(response: httpx.Response, body: bytes) -> bool:
+    lowered = body.lower()
     return (
         response.headers.get("cf-mitigated", "").lower() == "challenge"
-        or any(marker.lower() in body.lower() for marker in CHALLENGE_MARKERS)
+        or b"<title>just a moment" in lowered
+        or "chờ một chút".encode("utf-8") in lowered
+        or b"enable javascript and cookies to continue" in lowered
+        or (response.is_error and b"/cdn-cgi/challenge-platform/" in lowered)
         or (response.status_code == 403 and response.headers.get("server", "").lower() == "cloudflare")
     )
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _default_browser_executable(
@@ -112,7 +116,7 @@ def fetch_html_with_browser(url: str) -> tuple[str, str]:
     try:
         with sync_playwright() as playwright:
             launch_options = {
-                "headless": True,
+                "headless": _env_flag("VINGROUP_BROWSER_HEADLESS"),
                 "viewport": {"width": 1280, "height": 900},
                 "locale": "vi-VN",
                 "ignore_default_args": ["--enable-automation"],
@@ -187,9 +191,9 @@ def fetch_html_with_browser(url: str) -> tuple[str, str]:
                 page.wait_for_function(
                     """() => {
                         const title = document.title.toLowerCase();
-                        const html = document.documentElement.innerHTML;
                         return !title.includes('just a moment') &&
-                               !html.includes('/cdn-cgi/challenge-platform/') &&
+                               !title.includes('chờ một chút') &&
+                               !title.includes('attention required') &&
                                document.body && document.body.innerText.trim().length > 100;
                     }""",
                     timeout=BROWSER_TIMEOUT_MS,
@@ -208,7 +212,7 @@ def fetch_html_with_browser(url: str) -> tuple[str, str]:
                 context.close()
     except PlaywrightTimeoutError as exc:
         raise CrawlerError(
-            f"Cloudflare challenge did not clear in unattended {channel or 'Chromium'} within 30 seconds; Vingroup is blocking automated access"
+            f"Cloudflare challenge did not clear in {channel or 'Chromium'} within 120 seconds; Vingroup is blocking automated access"
         ) from exc
     except CrawlerError:
         raise

@@ -202,16 +202,17 @@ The HTTP path enforces:
 - HTML content types;
 - a 5 MiB response limit.
 
-When the response indicates a Cloudflare challenge, the crawler tries a persistent headless browser context without user interaction. Main-frame navigation is restricted to the allowed Vingroup hosts. Images, media, and fonts are blocked because they are unnecessary for extraction.
+When the response indicates a Cloudflare challenge, the crawler opens a visible browser with a persistent crawler profile. Main-frame navigation is restricted to the allowed Vingroup hosts. Images, media, and fonts are blocked because they are unnecessary for extraction.
 
 Browser settings are controlled by:
 
 ```dotenv
 VINGROUP_BROWSER_CHANNEL=default
+VINGROUP_BROWSER_HEADLESS=0
 VINGROUP_BROWSER_PROFILE=.vingroup-browser-profile
 ```
 
-On macOS the crawler uses the current default browser; elsewhere it uses Playwright Chromium. Set `VINGROUP_BROWSER_CHANNEL=chromium`, `chrome`, or `default` to override that choice. The selected browser must be Chromium compatible. The crawler uses a separate profile. The browser challenge timeout is 30 seconds. If the site rejects unattended automation, the crawl reports a failure rather than waiting for manual intervention.
+On macOS the crawler uses the current default browser; elsewhere it uses Playwright Chromium. Set `VINGROUP_BROWSER_CHANNEL=chromium`, `chrome`, or `default` to override that choice. The selected browser must be Chromium compatible. The crawler uses a separate profile. The browser challenge timeout is two minutes. Set `VINGROUP_BROWSER_HEADLESS=1` only when no display is available.
 
 ## 9. Analysis Contract
 

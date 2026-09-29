@@ -35,3 +35,11 @@ def test_rejects_listing_page():
 
 def test_normalizes_english_publication_date():
     assert _normalize_date("January 15, 2026") == "2026-01-15"
+
+
+def test_extracts_date_from_clock_icon_paragraph():
+    html = ARTICLE_HTML.replace('"datePublished"', '"notADate"').replace(
+        '<nav>Menu</nav>', '<nav>Menu</nav><p><i class="far fa-clock"></i>18-05-2026</p>'
+    )
+    article = extract_article(html, "https://vingroup.net/en/news/detail/6926/example")
+    assert article.publication_date == "2026-05-18"

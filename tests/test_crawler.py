@@ -3,7 +3,7 @@ import plistlib
 import httpx
 import pytest
 
-from vingroup_crawler.crawler import MAX_BYTES, _default_browser_executable, fetch_html, validate_url
+from vingroup_crawler.crawler import MAX_BYTES, _default_browser_executable, _env_flag, fetch_html, validate_url
 from vingroup_crawler.errors import CrawlerError
 
 
@@ -34,6 +34,13 @@ def test_resolves_macos_default_browser_without_hardcoded_app(tmp_path):
     executable = bundle / "MacOS/Example"
     executable.touch()
     assert _default_browser_executable(preferences, (tmp_path / "Applications",)) == executable
+
+
+def test_browser_is_visible_by_default_but_can_be_headless(monkeypatch):
+    monkeypatch.delenv("VINGROUP_BROWSER_HEADLESS", raising=False)
+    assert _env_flag("VINGROUP_BROWSER_HEADLESS") is False
+    monkeypatch.setenv("VINGROUP_BROWSER_HEADLESS", "1")
+    assert _env_flag("VINGROUP_BROWSER_HEADLESS") is True
 
 
 def test_rejects_external_redirect():
@@ -101,6 +108,24 @@ def test_cloudflare_200_challenge_uses_unattended_fallback():
         html, _ = fetch_html("https://vingroup.net/en/news", client=client,
                              browser_fetcher=lambda url: ("<html>news</html>", url))
     assert html == "<html>news</html>"
+
+
+def test_vietnamese_cloudflare_200_challenge_uses_browser():
+    response = httpx.Response(200, headers={"content-type": "text/html"},
+                              text="<html><head><title>Chờ một chút...</title></head><body>Waiting</body></html>")
+    with httpx.Client(transport=httpx.MockTransport(lambda request: response)) as client:
+        html, _ = fetch_html("https://vingroup.net/en/news/detail/6926/example", client=client,
+                             browser_fetcher=lambda url: ("<html>article</html>", url))
+    assert html == "<html>article</html>"
+
+
+def test_normal_200_page_with_cloudflare_script_is_not_a_challenge():
+    page = '<html><head><title>Article</title><script src="/cdn-cgi/challenge-platform/script.js"></script></head><body>Article</body></html>'
+    response = httpx.Response(200, headers={"content-type": "text/html", "server": "cloudflare"}, text=page)
+    with httpx.Client(transport=httpx.MockTransport(lambda request: response)) as client:
+        html, _ = fetch_html("https://vingroup.net/en/news/detail/6926/example", client=client,
+                             browser_fetcher=lambda url: (_ for _ in ()).throw(AssertionError("unexpected browser")))
+    assert html == page
 
 
 def test_ordinary_403_does_not_use_browser_fallback():

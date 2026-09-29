@@ -65,7 +65,7 @@ Both Markdown formats begin with YAML front matter containing `title`, `publicat
 
 `crawled_articles.csv` tracks source acquisition. `analyses.csv` tracks every `(language, article ID, provider, model, endpoint)` result and its files. Both processes continue after individual failures and exit nonzero when any item failed.
 
-The crawler normally uses a lightweight HTTP request. On a Cloudflare challenge it tries a headless browser without user interaction, waiting up to 30 seconds. Vingroup may still block automated access; in that case the command fails with a clear error. There is no reliable local bypass for a challenge enforced by the site. On macOS it uses the current default browser; elsewhere it uses Playwright Chromium. Set `VINGROUP_BROWSER_CHANNEL=chromium`, `chrome`, or `default` to override that choice. The selected browser must be Chromium compatible, and the crawler uses its own profile.
+The crawler normally uses a lightweight HTTP request. On a Cloudflare challenge it opens a visible browser with a persistent crawler profile and waits up to two minutes. Vingroup may still block automated access; in that case the command fails with a clear error. On macOS it uses the current default browser; elsewhere it uses Playwright Chromium. Set `VINGROUP_BROWSER_CHANNEL=chromium`, `chrome`, or `default` to override that choice. The selected browser must be Chromium compatible. Set `VINGROUP_BROWSER_HEADLESS=1` only when no display is available.
 
 ## Test
 

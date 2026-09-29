@@ -24,6 +24,7 @@ TITLE_SELECTORS = ("h1", ".detail-title", ".article-title", "[itemprop='headline
 DATE_SELECTORS = (
     "time[datetime]",
     "[itemprop='datePublished']",
+    "p:has(i.fa-clock)",
     ".detail-date",
     ".article-date",
     ".news-date",
